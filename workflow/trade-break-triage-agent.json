@@ -1,0 +1,1336 @@
+{
+  "name": "Trade Break Detection & Triage Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "5734bff0-17a2-41a6-9fe7-302631676446",
+      "name": "Schedule Trigger Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c01",
+              "name": "jira_project_key",
+              "value": "CONFIGURE_PROJECT_KEY",
+              "type": "string"
+            },
+            {
+              "id": "c02",
+              "name": "price_tolerance",
+              "value": 0.01,
+              "type": "number"
+            },
+            {
+              "id": "c03",
+              "name": "clearing_sla_minutes",
+              "value": 30,
+              "type": "number"
+            },
+            {
+              "id": "c04",
+              "name": "critical_notional_threshold",
+              "value": 5000000,
+              "type": "number"
+            },
+            {
+              "id": "c05",
+              "name": "quantity_mismatch_threshold",
+              "value": 0.05,
+              "type": "number"
+            },
+            {
+              "id": "c06",
+              "name": "ai_confidence_auto_threshold",
+              "value": 0.8,
+              "type": "number"
+            },
+            {
+              "id": "c07",
+              "name": "ai_confidence_manual_threshold",
+              "value": 0.5,
+              "type": "number"
+            },
+            {
+              "id": "c08",
+              "name": "very_large_quantity_mismatch_pct",
+              "value": 0.25,
+              "type": "number"
+            },
+            {
+              "id": "c09",
+              "name": "late_medium_multiplier",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "c10",
+              "name": "jira_min_severity",
+              "value": "MEDIUM",
+              "type": "string"
+            },
+            {
+              "id": "c11",
+              "name": "duplicate_trade_severity",
+              "value": "HIGH",
+              "type": "string"
+            },
+            {
+              "id": "c12",
+              "name": "unknown_break_severity",
+              "value": "HIGH",
+              "type": "string"
+            },
+            {
+              "id": "c13",
+              "name": "accepted_clearing_statuses",
+              "value": "CONFIRMED,MATCHED,SETTLED",
+              "type": "string"
+            },
+            {
+              "id": "c15",
+              "name": "max_jira_tickets_per_run",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "c14",
+              "name": "jira_priority_ids",
+              "value": "{\"CRITICAL\":\"1\",\"HIGH\":\"2\",\"MEDIUM\":\"3\",\"LOW\":\"4\"}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "547a43dd-200c-411d-b768-58ecd26cdc91",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prototype source. Replace with a DB query / webhook payload; keep the output shape (record_source = EXECUTION).\nconst now = Date.now();\nconst ago = (m) => new Date(now - m * 60000).toISOString();\nconst rows = [\n  { trade_id: 'trd-100001', symbol: 'aapl', side: 'Buy', quantity: '1,000', price: '189.50', currency: 'usd', account: 'acc 1001', venue: 'XNAS', execution_timestamp: ago(240), trader_id: 'TR-0412' },\n  { trade_id: 'TRD-100002', symbol: 'MSFT', side: 'SELL', quantity: 5000, price: 415.20, currency: 'USD', account: 'ACC-1002', venue: 'XNAS', execution_timestamp: ago(230), trader_id: 'TR-0377' },\n  { trade_id: 'TRD-100003', symbol: 'NVDA', side: 'BUY', quantity: 200, price: 905.00, currency: 'USD', account: 'ACC-1003', venue: 'XNAS', execution_timestamp: ago(220), trader_id: 'TR-0412' },\n  { trade_id: 'TRD-100004', symbol: 'TSLA', side: 'BUY', quantity: 300, price: 245.10, currency: 'USD', account: 'ACC-1004', venue: 'XNAS', execution_timestamp: ago(210), trader_id: 'TR-0291' },\n  { trade_id: 'TRD-100005', symbol: 'JPM', side: 'SELL', quantity: 800, price: 198.40, currency: 'USD', account: 'ACC-1005', venue: 'XNYS', execution_timestamp: ago(200), trader_id: 'TR-0377' },\n  { trade_id: 'TRD-100006', symbol: 'KO', side: 'BUY', quantity: 1500, price: 61.25, currency: 'USD', account: 'ACC-1006', venue: 'XNYS', execution_timestamp: ago(190), trader_id: 'TR-0188' },\n  { trade_id: 'TRD-100006', symbol: 'KO', side: 'BUY', quantity: 1500, price: 61.25, currency: 'USD', account: 'ACC-1006', venue: 'XNYS', execution_timestamp: ago(190), trader_id: 'TR-0188' },\n  { trade_id: 'TRD-100007', symbol: 'AMZN', side: 'BUY', quantity: 400, price: 182.00, currency: 'USD', account: 'ACC-1007', venue: 'XNAS', execution_timestamp: ago(180), trader_id: 'TR-0291' },\n  { trade_id: 'TRD-100008', symbol: 'META', side: 'BUY', quantity: 10000, price: 505.00, currency: 'USD', account: 'ACC-1008', venue: 'XNAS', execution_timestamp: ago(170), trader_id: 'TR-0412' },\n  { trade_id: 'TRD-100009', symbol: 'GOOGL', side: 'BUY', quantity: 20000, price: 175.00, currency: 'USD', account: 'ACC-1009', venue: 'XNAS', execution_timestamp: ago(160), trader_id: 'TR-0377' },\n  { trade_id: 'TRD-100010', symbol: 'SPY', side: 'BUY', quantity: 15000, price: 520.00, currency: 'USD', account: 'ACC-1010', venue: 'ARCX', execution_timestamp: ago(150), trader_id: 'TR-0188' },\n  { trade_id: 'TRD-100011', symbol: 'XOM', side: 'SELL', quantity: 'N/A', price: 110.00, currency: 'USD', account: 'ACC-1011', venue: 'XNYS', execution_timestamp: ago(140), trader_id: 'TR-0291' },\n  { trade_id: 'TRD-100012', symbol: 'BAC', side: 'SELL', quantity: 2500, price: 36.10, currency: 'USD', account: 'ACC-1012', venue: 'XNYS', execution_timestamp: ago(130), trader_id: 'TR-0188' },\n  { trade_id: 'TRD-100013', symbol: 'WMT', side: 'BUY', quantity: 3000, price: 68.90, currency: 'USD', account: 'ACC-1013', venue: 'XNYS', execution_timestamp: ago(120), trader_id: 'TR-0377' },\n];\nreturn rows.map((r) => ({ json: Object.assign({ record_source: 'EXECUTION' }, r) }));"
+      },
+      "id": "35acbbdb-74c7-417c-b28e-9172b114cb36",
+      "name": "Load Execution Records (Mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prototype source. Replace with clearing/broker feed; keep the output shape (record_source = CLEARING).\nconst now = Date.now();\nconst at = (minsAgo) => new Date(now - minsAgo * 60000).toISOString();\nconst rows = [\n  { trade_id: 'TRD-100001', symbol: 'AAPL', side: 'BUY', quantity: 1000, price: 189.505, currency: 'USD', account: 'ACC-1001', clearing_status: 'CONFIRMED', clearing_timestamp: at(234) },\n  { trade_id: 'TRD-100002', symbol: 'MSFT', side: 'SELL', quantity: 4500, price: 415.20, currency: 'USD', account: 'ACC-1002', clearing_status: 'CONFIRMED', clearing_timestamp: at(222) },\n  { trade_id: 'TRD-100003', symbol: 'NVDA', side: 'BUY', quantity: 200, price: 905.35, currency: 'USD', account: 'ACC-1003', clearing_status: 'CONFIRMED', clearing_timestamp: at(215) },\n  { trade_id: 'TRD-100004', symbol: 'TSLA', side: 'BUY', quantity: 300, price: 245.10, currency: 'USD', account: 'ACC-1040', clearing_status: 'CONFIRMED', clearing_timestamp: at(203) },\n  { trade_id: 'TRD-100006', symbol: 'KO', side: 'BUY', quantity: 1500, price: 61.25, currency: 'USD', account: 'ACC-1006', clearing_status: 'CONFIRMED', clearing_timestamp: at(186) },\n  { trade_id: 'TRD-100007', symbol: 'AMZN', side: 'BUY', quantity: 400, price: 182.00, currency: 'USD', account: 'ACC-1007', clearing_status: 'CONFIRMED', clearing_timestamp: at(85) },\n  { trade_id: 'TRD-100008', symbol: 'META', side: 'SELL', quantity: 10000, price: 505.00, currency: 'USD', account: 'ACC-1008', clearing_status: 'CONFIRMED', clearing_timestamp: at(164) },\n  { trade_id: 'TRD-100009', symbol: 'GOOGL', side: 'BUY', quantity: 18000, price: 175.40, currency: 'USD', account: 'ACC-1009', clearing_status: 'CONFIRMED', clearing_timestamp: at(151) },\n  { trade_id: 'TRD-100010', symbol: 'SPY', side: 'BUY', quantity: 15000, price: 520.05, currency: 'USD', account: 'ACC-1010', clearing_status: 'CONFIRMED', clearing_timestamp: at(145) },\n  { trade_id: 'TRD-100011', symbol: 'XOM', side: 'SELL', quantity: 600, price: 110.00, currency: 'USD', account: 'ACC-1011', clearing_status: 'CONFIRMED', clearing_timestamp: at(136) },\n  { trade_id: 'TRD-100012', symbol: 'BAC', side: 'SELL', quantity: 2500, price: 36.10, currency: 'USD', account: 'ACC-1012', clearing_status: 'CONFIRMED', clearing_timestamp: at(85) },\n  { trade_id: 'TRD-100013', symbol: 'WMT', side: 'BUY', quantity: 3000, price: 68.90, currency: 'USD', account: 'ACC-1013', clearing_status: 'CONFIRMED', clearing_timestamp: at(116) },\n];\nreturn rows.map((r) => ({ json: Object.assign({ record_source: 'CLEARING' }, r) }));"
+      },
+      "id": "203e8615-b459-40ea-b74c-b24b2dbbe691",
+      "name": "Load Clearing Records (Mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d83ce6a7-593f-4373-9fea-1bf5ff1bf24e",
+      "name": "Combine Ingested Records",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Jira create failed: incident data is preserved and flagged for retry.\nconst d = $('Route Jira Action').item.json;\nconst err = $json.error;\nconst msg = err ? (typeof err === 'string' ? err : (err.message || JSON.stringify(err))) : 'unknown Jira error';\nreturn { json: Object.assign({}, d, {\n  jira_issue_key: '', action_taken: 'JIRA_TICKET_CREATION_FAILED',\n  processing_status: 'JIRA_FAILED_RETRY_REQUIRED', jira_ticket_created: false, duplicate_prevented: false,\n  retry_required: true, retry_stage: 'JIRA_CREATE',\n  workflow_error: true, error_detail: ('Jira create failed: ' + msg + ' ' + (d.ai_error || '')).trim(),\n} ) };"
+      },
+      "id": "81e8ea88-7dd5-46ae-a3db-b62de786eabe",
+      "name": "Record Incident Creation Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "id": "7ba0b993-4a96-44a0-ad96-4be2500d27e9",
+      "name": "Consolidate Audit Records",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3472,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $('Route Jira Action').item.json;\nconst aiFailed = d.ai_status === 'FAILED';\nreturn { json: Object.assign({}, d, {\n  jira_issue_key: $('Create Jira Incident').item.json.key || '', action_taken: 'JIRA_TICKET_CREATED',\n  processing_status: aiFailed ? 'COMPLETED_WITH_AI_FALLBACK' : 'COMPLETED',\n  jira_ticket_created: true, duplicate_prevented: false,\n  workflow_error: d.workflow_error || !!$json.error,\n  error_detail: $json.error ? ('Incident registry write failed after ticket creation (re-register ' + d.dedup_key + '). ' + (d.error_detail || '')) : d.error_detail,\n} ) };"
+      },
+      "id": "6e374cf6-9b06-45ac-9b19-c6dadd7ee0ea",
+      "name": "Record Incident Created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Comment failed: duplicate ticket was still prevented, but the update is flagged for retry.\nconst d = $('Route Jira Action').item.json;\nconst err = $json.error;\nconst msg = err ? (typeof err === 'string' ? err : (err.message || JSON.stringify(err))) : 'unknown Jira error';\nreturn { json: Object.assign({}, d, {\n  action_taken: 'DUPLICATE_PREVENTED_COMMENT_FAILED',\n  processing_status: 'JIRA_FAILED_RETRY_REQUIRED', jira_ticket_created: false, duplicate_prevented: true,\n  retry_required: true, retry_stage: 'JIRA_COMMENT',\n  workflow_error: true, error_detail: ('Jira comment failed: ' + msg + ' ' + (d.ai_error || '')).trim(),\n} ) };"
+      },
+      "id": "099ff7c6-c8e4-4bd6-8ec5-624ede3d7726",
+      "name": "Record Comment Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $('Route Jira Action').item.json;\nconst aiFailed = d.ai_status === 'FAILED';\nreturn { json: Object.assign({}, d, {\n  action_taken: 'DUPLICATE_PREVENTED_COMMENT_ADDED',\n  processing_status: aiFailed ? 'COMPLETED_WITH_AI_FALLBACK' : 'COMPLETED',\n  jira_ticket_created: false, duplicate_prevented: true,\n  workflow_error: d.workflow_error || !!$json.error,\n  error_detail: $json.error ? ('Incident registry update failed (comment was added). ' + (d.error_detail || '')) : d.error_detail,\n} ) };"
+      },
+      "id": "a885cc2c-ddb9-453b-825a-79649bbb3638",
+      "name": "Record Existing Incident Updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.jira_action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "CREATE"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Create incident"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.jira_action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "COMMENT"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Update existing incident"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "No Jira action"
+        }
+      },
+      "id": "b05da352-8135-405f-b889-8a4e8f1636d3",
+      "name": "Route Jira Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2800,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $json;\nreturn { json: {\n  workflow_run_id: d.workflow_run_id, processed_at: d.processed_at, trade_id: d.trade_id, dedup_key: '',\n  reconciliation_status: 'MATCHED', break_type: '', severity: '', ai_confidence: null,\n  jira_issue_key: '', action_taken: 'NO_ACTION_MATCHED', processing_status: 'COMPLETED',\n  jira_ticket_created: false, duplicate_prevented: false, manual_review: false, workflow_error: false, error_detail: '',\n} };"
+      },
+      "id": "8af8bad4-9659-4ed2-91ca-b3ae8ca97cfe",
+      "name": "Build Matched Audit Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalises both datasets. Uncertain / malformed values are FLAGGED (valid=false + issues), never guessed.\nconst records = $input.all().map((i) => i.json);\n\nfunction normId(v) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).trim().toUpperCase().replace(/\\s+/g, '');\n  return /^[A-Z0-9][A-Z0-9_\\-]{2,31}$/.test(s) ? s : null;\n}\nfunction normSymbol(v) {\n  if (v === null || v === undefined) return null;\n  const s = String(v).trim().toUpperCase();\n  return /^[A-Z][A-Z0-9.\\-]{0,11}$/.test(s) ? s : null;\n}\nfunction normNum(v) {\n  if (typeof v === 'number') return isFinite(v) && v > 0 ? v : null;\n  if (typeof v !== 'string') return null;\n  const s = v.replace(/,/g, '').trim();\n  if (!/^\\d+(\\.\\d+)?$/.test(s)) return null;\n  const n = Number(s);\n  return n > 0 ? n : null;\n}\nfunction normTs(v) {\n  if (!v) return null;\n  const t = Date.parse(v);\n  return isNaN(t) ? null : new Date(t).toISOString();\n}\nfunction normCcy(v) {\n  const s = String(v || '').trim().toUpperCase();\n  return /^[A-Z]{3}$/.test(s) ? s : null;\n}\nfunction normAcct(v) {\n  const s = String(v || '').trim().toUpperCase().replace(/[\\s_]+/g, '-');\n  return /^[A-Z0-9][A-Z0-9\\-]{2,31}$/.test(s) ? s : null;\n}\nfunction normSide(v) {\n  const s = String(v || '').trim().toUpperCase();\n  if (['BUY', 'B', 'BOT'].indexOf(s) >= 0) return 'BUY';\n  if (['SELL', 'S', 'SLD'].indexOf(s) >= 0) return 'SELL';\n  return null;\n}\nfunction optText(v) {\n  return v === null || v === undefined || String(v).trim() === '' ? null : String(v).trim().toUpperCase();\n}\n\nfunction normalise(rec, idx, kind) {\n  const issues = [];\n  const out = { record_source: kind };\n  const id = normId(rec.trade_id);\n  out.trade_id = id || 'MALFORMED-' + kind + '-' + idx;\n  if (!id) issues.push('trade_id missing or malformed');\n  out.symbol = normSymbol(rec.symbol); if (!out.symbol) issues.push('symbol missing or malformed');\n  out.side = normSide(rec.side); if (!out.side) issues.push('side not recognisable as BUY/SELL');\n  out.quantity = normNum(rec.quantity); if (out.quantity === null) issues.push('quantity not a positive number');\n  out.price = normNum(rec.price); if (out.price === null) issues.push('price not a positive number');\n  out.currency = normCcy(rec.currency); if (!out.currency) issues.push('currency not a 3-letter code');\n  out.account = normAcct(rec.account); if (!out.account) issues.push('account missing or malformed');\n  if (kind === 'EXECUTION') {\n    out.venue = optText(rec.venue);\n    out.trader_id = optText(rec.trader_id);\n    out.execution_timestamp = normTs(rec.execution_timestamp);\n    if (!out.execution_timestamp) issues.push('execution_timestamp invalid');\n  } else {\n    out.clearing_status = optText(rec.clearing_status);\n    if (!out.clearing_status) issues.push('clearing_status missing');\n    out.clearing_timestamp = normTs(rec.clearing_timestamp);\n    if (!out.clearing_timestamp) issues.push('clearing_timestamp invalid');\n  }\n  out.valid = issues.length === 0;\n  out.issues = issues;\n  if (!out.valid) out.raw = rec;\n  return out;\n}\n\nconst executions = [];\nconst clearing = [];\nrecords.forEach((r, i) => {\n  if (r.record_source === 'EXECUTION') executions.push(normalise(r, i, 'EXECUTION'));\n  else if (r.record_source === 'CLEARING') clearing.push(normalise(r, i, 'CLEARING'));\n});\nreturn [{ json: {\n  executions: executions,\n  clearing: clearing,\n  malformed_count: executions.concat(clearing).filter((r) => !r.valid).length,\n} }];"
+      },
+      "id": "513d1174-6253-4dec-b114-eeda01100121",
+      "name": "Normalise Trade Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic reconciliation keyed on trade_id. No LLM involvement.\nconst cfg = $('Workflow Configuration').first().json;\nconst data = $input.first().json;\nconst runId = String($execution.id);\nconst nowMs = Date.now();\nconst processedAt = new Date(nowMs).toISOString();\nconst tol = Number(cfg.price_tolerance);\nconst sla = Number(cfg.clearing_sla_minutes);\nconst accepted = String(cfg.accepted_clearing_statuses).split(',').map((s) => s.trim().toUpperCase());\n\nfunction groupBy(arr) {\n  const m = new Map();\n  arr.forEach((r) => { if (!m.has(r.trade_id)) m.set(r.trade_id, []); m.get(r.trade_id).push(r); });\n  return m;\n}\nconst ex = groupBy(data.executions);\nconst cl = groupBy(data.clearing);\nconst ids = new Set(Array.from(ex.keys()).concat(Array.from(cl.keys())));\nconst round = (n, d) => Math.round(n * Math.pow(10, d)) / Math.pow(10, d);\nconst out = [];\n\nids.forEach((id) => {\n  const eList = ex.get(id) || [];\n  const cList = cl.get(id) || [];\n  const e = eList[0] || null;\n  const c = cList.find((x) => x.valid) || cList[0] || null;\n  const types = [];\n  const dq = [];\n  if (!e) dq.push('clearing record has no matching execution record');\n  if (e && !e.valid) e.issues.forEach((x) => dq.push('execution: ' + x));\n  if (c && !c.valid) c.issues.forEach((x) => dq.push('clearing: ' + x));\n\n  const r = {\n    workflow_run_id: runId, processed_at: processedAt, trade_id: id,\n    symbol: e ? e.symbol : (c ? c.symbol : null),\n    venue: e ? e.venue : null, trader_id: e ? e.trader_id : null,\n    side: e ? e.side : null, quantity: e ? e.quantity : null, price: e ? e.price : null,\n    currency: e ? e.currency : null, account: e ? e.account : null,\n    execution_timestamp: e ? e.execution_timestamp : null,\n    clearing_side: c ? c.side : null, clearing_quantity: c ? c.quantity : null, clearing_price: c ? c.price : null,\n    clearing_currency: c ? c.currency : null, clearing_account: c ? c.account : null,\n    clearing_status: c ? c.clearing_status : null, clearing_timestamp: c ? c.clearing_timestamp : null,\n    quantity_match: null, price_match: null, account_match: null, currency_match: null, side_match: null,\n    confirmation_present: false,\n    clearing_delay_minutes: null, delay_basis: null,\n    quantity_difference: null, quantity_difference_pct: null, price_difference: null,\n    execution_record_count: eList.length, clearing_record_count: cList.length,\n    data_quality_issues: dq,\n  };\n\n  if (dq.length > 0) {\n    types.push('UNKNOWN');\n    r.confirmation_present = !!c;\n  } else {\n    const execMs = Date.parse(e.execution_timestamp);\n    r.confirmation_present = !!c && accepted.indexOf(c.clearing_status) >= 0;\n    if (!r.confirmation_present) {\n      types.push('MISSING_CONFIRMATION');\n      r.clearing_delay_minutes = round((nowMs - execMs) / 60000, 1);\n      r.delay_basis = 'ELAPSED_SINCE_EXECUTION_NO_CONFIRMATION';\n    } else {\n      r.quantity_match = e.quantity === c.quantity;\n      r.price_match = Math.abs(c.price - e.price) <= tol + 1e-9;\n      r.account_match = e.account === c.account;\n      r.currency_match = e.currency === c.currency;\n      r.side_match = e.side === c.side;\n      r.clearing_delay_minutes = round((Date.parse(c.clearing_timestamp) - execMs) / 60000, 1);\n      r.delay_basis = 'CLEARING_MINUS_EXECUTION';\n      r.quantity_difference = c.quantity - e.quantity;\n      r.quantity_difference_pct = round(Math.abs(c.quantity - e.quantity) / e.quantity, 4);\n      r.price_difference = round(c.price - e.price, 6);\n      if (r.clearing_delay_minutes < 0) {\n        types.push('UNKNOWN');\n        dq.push('clearing timestamp precedes execution timestamp');\n      }\n      if (!r.side_match) types.push('SIDE_MISMATCH');\n      if (!r.quantity_match) types.push('QUANTITY_MISMATCH');\n      if (!r.price_match) types.push('PRICE_MISMATCH');\n      if (!r.account_match) types.push('ACCOUNT_MISMATCH');\n      if (!r.currency_match) types.push('CURRENCY_MISMATCH');\n      if (r.clearing_delay_minutes > sla) types.push('LATE_CONFIRMATION');\n    }\n  }\n  if (eList.length > 1 || cList.length > 1) types.push('DUPLICATE_TRADE');\n\n  r.break_types = types;\n  r.break_type = types.length === 0 ? null : (types.length === 1 ? types[0] : 'MULTIPLE_BREAKS');\n  r.reconciliation_status = types.length === 0 ? 'MATCHED' : 'BREAK';\n  out.push({ json: r });\n});\nreturn out;"
+      },
+      "id": "7ebd7819-d1bc-4cdc-86f9-8b1096b1ccd4",
+      "name": "Reconcile Trades",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-break",
+              "leftValue": "={{ $json.reconciliation_status }}",
+              "rightValue": "BREAK",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "99f03c2a-4dbc-408d-be75-23ad74741608",
+      "name": "Route Matched vs Break",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Deterministic severity engine. Every threshold comes from Workflow Configuration.\nconst cfg = $('Workflow Configuration').first().json;\nconst d = $json;\nconst rank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };\nconst names = ['', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];\nconst sla = Number(cfg.clearing_sla_minutes);\nconst notional = (d.quantity !== null && d.price !== null) ? Math.round(d.quantity * d.price * 100) / 100 : null;\nconst per = {};\nconst reasons = [];\nd.break_types.forEach((t) => {\n  let s = 'LOW';\n  if (t === 'SIDE_MISMATCH') s = 'CRITICAL';\n  else if (t === 'QUANTITY_MISMATCH') {\n    const p = d.quantity_difference_pct || 0;\n    s = p >= Number(cfg.very_large_quantity_mismatch_pct) ? 'CRITICAL' : (p >= Number(cfg.quantity_mismatch_threshold) ? 'HIGH' : 'LOW');\n  }\n  else if (t === 'ACCOUNT_MISMATCH' || t === 'CURRENCY_MISMATCH') s = 'HIGH';\n  else if (t === 'PRICE_MISMATCH') s = 'MEDIUM';\n  else if (t === 'MISSING_CONFIRMATION') s = (d.clearing_delay_minutes > sla) ? 'HIGH' : 'LOW';\n  else if (t === 'LATE_CONFIRMATION') s = (d.clearing_delay_minutes > sla * Number(cfg.late_medium_multiplier)) ? 'MEDIUM' : 'LOW';\n  else if (t === 'DUPLICATE_TRADE') s = cfg.duplicate_trade_severity;\n  else if (t === 'UNKNOWN') s = cfg.unknown_break_severity;\n  per[t] = s;\n  reasons.push(t + ' => ' + s);\n});\nlet score = 1;\nObject.keys(per).forEach((t) => { score = Math.max(score, rank[per[t]] || 1); });\nconst material = Object.keys(per).filter((t) => rank[per[t]] >= rank.MEDIUM).length;\nif (material >= 2) { score = 4; reasons.push('Multiple material discrepancies => CRITICAL'); }\nif (notional !== null && notional >= Number(cfg.critical_notional_threshold)) {\n  score = 4;\n  reasons.push('Notional ' + notional + ' >= critical threshold ' + cfg.critical_notional_threshold + ' with a break => CRITICAL');\n}\nconst severity = names[score];\n\nconst aiContext = {\n  trade_id: d.trade_id, break_type: d.break_type, break_types: d.break_types, severity: severity,\n  severity_rationale: reasons,\n  symbol: d.symbol, venue: d.venue, account: d.account, clearing_account: d.clearing_account,\n  trader_id: d.trader_id, currency: d.currency, clearing_currency: d.clearing_currency,\n  side: d.side, clearing_side: d.clearing_side,\n  execution_quantity: d.quantity, clearing_quantity: d.clearing_quantity, quantity_difference: d.quantity_difference,\n  execution_price: d.price, clearing_price: d.clearing_price, price_difference: d.price_difference,\n  price_tolerance: Number(cfg.price_tolerance), trade_notional: notional,\n  execution_timestamp: d.execution_timestamp, clearing_timestamp: d.clearing_timestamp,\n  clearing_delay_minutes: d.clearing_delay_minutes, delay_basis: d.delay_basis, clearing_sla_minutes: sla,\n  clearing_status: d.clearing_status, confirmation_present: d.confirmation_present,\n  execution_record_count: d.execution_record_count, clearing_record_count: d.clearing_record_count,\n  data_quality_issues: d.data_quality_issues,\n};\nreturn { json: Object.assign({}, d, { severity: severity, severity_by_type: per, severity_rationale: reasons, trade_notional: notional, ai_context: aiContext }) };"
+      },
+      "id": "04496d4c-6fab-47fc-831a-5291049c5222",
+      "name": "Compute Break Severity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Triage this post-trade break. All values below were computed deterministically; the break is already confirmed.\n\n{{ JSON.stringify($json.ai_context, null, 2) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a post-trade operations analyst assistant. A deterministic reconciliation engine has ALREADY decided that a break exists and computed its type, differences and severity. You must NOT decide whether a break exists, and you must NOT change the break type or severity.\n\nYour job: interpret the supplied evidence and produce an operations-friendly triage assessment as JSON.\n\nRules:\n- Base conclusions ONLY on the supplied data. Never invent missing information (no counterparties, fees, corporate actions, or system names that are not in the data).\n- Distinguish observed facts from hypotheses: prefix each evidence entry with \"OBSERVED:\" or \"HYPOTHESIS:\".\n- likely_root_cause must be exactly one of: BOOKING_ERROR, PARTIAL_FILL_OR_ALLOCATION, CLEARING_DELAY, REFERENCE_DATA_MISMATCH, DUPLICATE_BOOKING, PRICE_CAPTURE_ERROR, ACCOUNT_MAPPING_ERROR, UNKNOWN.\n- If the root cause cannot be determined from the data, use UNKNOWN, say so explicitly in recommended_action, and use a low confidence.\n- confidence is a number between 0 and 1. Never express certainty; a single data point rarely justifies confidence above 0.8.\n- recommended_action must be a concrete operations step (e.g. who to contact, what to verify). Never recommend trading decisions, trade execution, or edits to source records.\n- Echo trade_id, break_type and severity exactly as supplied.\nReturn only the structured JSON.",
+          "maxIterations": 3
+        }
+      },
+      "id": "8ffc1f70-e0e7-42b3-89d1-53bb8aa86452",
+      "name": "AI Root-Cause Triage Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1776,
+        608
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-5-5",
+          "cachedResultName": "Claude Sonnet 5.5"
+        },
+        "options": {
+          "maxTokensToSample": 1500
+        }
+      },
+      "id": "94ffcb97-0498-4f33-8ae4-73bce54e4cb3",
+      "name": "Triage Language Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.6,
+      "position": [
+        1792,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\"trade_id\":\"TRD-000000\",\"break_type\":\"QUANTITY_MISMATCH\",\"severity\":\"HIGH\",\"likely_root_cause\":\"PARTIAL_FILL_OR_ALLOCATION\",\"confidence\":0.55,\"recommended_action\":\"Ask the booking desk to confirm the allocated quantity with the broker.\",\"evidence\":[\"OBSERVED: execution quantity 5000 vs clearing quantity 4500\",\"HYPOTHESIS: partial allocation not reflected in the internal booking\"]}"
+      },
+      "id": "10fd9ad6-496a-4596-89d2-7e92f2a2bdfd",
+      "name": "Structured Triage Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1920,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Merges the AI assessment with deterministic evidence and applies the confidence gate.\n// Deterministic break type / severity always win. AI failure => UNKNOWN root cause + manual investigation.\nconst cfg = $('Workflow Configuration').first().json;\nconst base = $('Compute Break Severity').item.json;\nconst causes = ['BOOKING_ERROR', 'PARTIAL_FILL_OR_ALLOCATION', 'CLEARING_DELAY', 'REFERENCE_DATA_MISMATCH', 'DUPLICATE_BOOKING', 'PRICE_CAPTURE_ERROR', 'ACCOUNT_MAPPING_ERROR', 'UNKNOWN'];\nconst o = $json.output;\nlet aiOk = false;\nlet aiError = '';\nlet cause = 'UNKNOWN';\nlet confidence = 0;\nlet action = 'AI triage unavailable. Investigate manually using the deterministic evidence below.';\nlet evidence = [];\n\nif ($json.error || !o || typeof o !== 'object' || typeof o.confidence !== 'number' || !isFinite(o.confidence)) {\n  aiError = $json.error ? String(typeof $json.error === 'string' ? $json.error : ($json.error.message || JSON.stringify($json.error))) : 'AI response missing or malformed';\n} else {\n  aiOk = true;\n  cause = causes.indexOf(o.likely_root_cause) >= 0 ? o.likely_root_cause : 'UNKNOWN';\n  confidence = Math.max(0, Math.min(1, o.confidence));\n  action = o.recommended_action ? String(o.recommended_action) : action;\n  evidence = Array.isArray(o.evidence) ? o.evidence.map((x) => String(x)) : [];\n}\n\nlet decision;\nif (!aiOk || cause === 'UNKNOWN') decision = 'MANUAL INVESTIGATION REQUIRED';\nelse if (confidence >= Number(cfg.ai_confidence_auto_threshold)) decision = 'AUTO TRIAGED';\nelse if (confidence >= Number(cfg.ai_confidence_manual_threshold)) decision = 'REVIEW REQUIRED';\nelse decision = 'MANUAL INVESTIGATION REQUIRED';\n\nconst fmt = (v) => (v === null || v === undefined ? 'n/a' : String(v));\nconst facts = [\n  'OBSERVED (deterministic): break types = ' + base.break_types.join(', '),\n  'OBSERVED (deterministic): severity rationale = ' + base.severity_rationale.join('; '),\n  'OBSERVED (deterministic): quantity diff = ' + fmt(base.quantity_difference) + ', price diff = ' + fmt(base.price_difference) + ', clearing delay (min) = ' + fmt(base.clearing_delay_minutes),\n].concat(base.data_quality_issues.map((x) => 'OBSERVED (data quality): ' + x));\n\nreturn { json: Object.assign({}, base, {\n  ai_status: aiOk ? 'OK' : 'FAILED',\n  ai_error: aiError,\n  likely_root_cause: cause,\n  ai_confidence: confidence,\n  recommended_action: action,\n  evidence: facts.concat(evidence),\n  automated_decision: decision,\n} ) };"
+      },
+      "id": "a0595f19-8398-4029-857d-57d6725772fb",
+      "name": "Apply Confidence Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "CONFIGURE_INCIDENT_REGISTRY_TABLE_ID",
+          "cachedResultName": "trade_break_incidents"
+        },
+        "returnAll": true
+      },
+      "id": "bf975463-0a14-4993-b715-4b29673dbb40",
+      "name": "Load Incident Registry",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        608
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "fields": "summary,status",
+          "jql": "={{ \"project = \\\"\" + $(\"Workflow Configuration\").first().json.jira_project_key + \"\\\" AND statusCategory != Done AND labels = \\\"automated-triage\\\" AND labels = \\\"trade-ops\\\"\" }}"
+        }
+      },
+      "id": "f5d92fb4-8dd8-4756-9b97-20a9edce4710",
+      "name": "Find Open Jira Incidents",
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        608
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dedup key = trade_id + break_type, matched on the issue summary '... <trade_id> - <break_type>' (severity may change between runs).\nconst cfg = $('Workflow Configuration').first().json;\nconst rank = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };\nconst NL = String.fromCharCode(10);\nconst prio = JSON.parse(cfg.jira_priority_ids);\nconst minRank = rank[cfg.jira_min_severity] || 2;\nconst breaks = $('Apply Confidence Gate').all().map((i) => i.json);\nconst rawCap = cfg.max_jira_tickets_per_run; const parsedCap = (rawCap === null || rawCap === undefined || rawCap === '' || typeof rawCap === 'boolean') ? NaN : Number(rawCap); const maxTickets = (Number.isFinite(parsedCap) && parsedCap >= 0) ? Math.floor(parsedCap) : 0; // fail-safe: missing/null/invalid/negative => 0 tickets (never unlimited)\nconst plannedKeys = {};\nconst registry = {};\nlet registryOk = true;\nlet registryError = '';\n$('Load Incident Registry').all().forEach((it) => {\n  const r = it.json;\n  if (r.error && !r.dedup_key) { registryOk = false; registryError = typeof r.error === 'string' ? r.error : (r.error.message || JSON.stringify(r.error)); return; }\n  if (r.dedup_key && r.jira_issue_key && String(r.status || 'OPEN').toUpperCase() === 'OPEN') registry[r.dedup_key] = r.jira_issue_key;\n});\n\nlet lookupOk = true;\nlet lookupError = '';\nconst existing = {};\n$input.all().forEach((it) => {\n  const j = it.json;\n  if (j.error && !j.key) { lookupOk = false; lookupError = typeof j.error === 'string' ? j.error : (j.error.message || JSON.stringify(j.error)); return; }\n  if (!j.key) return;\n  const summary = String((j.fields && j.fields.summary) || '');\n  const m = summary.match(/^\\[TRADE BREAK\\]\\[[A-Z]+\\]\\s+(\\S+)\\s+-\\s+([A-Z_]+)\\s*$/);\n  if (m) existing[m[1] + '|' + m[2]] = j.key;\n});\n\nconst fmt = (v) => (v === null || v === undefined || v === '' ? 'n/a' : String(v));\n// Pass 1: persisted + in-run dedup decide each item's pre-cap action (processing order, unchanged).\nconst pre = breaks.map((d, idx) => {\n  const material = rank[d.severity] >= minRank;\n  const dedupKey = d.trade_id + ':' + d.break_type;\n  const existingKey = registry[dedupKey] || existing[d.trade_id + '|' + d.break_type] || null;\n  let jiraAction = 'LOG_ONLY';\n  if (material) jiraAction = (!lookupOk && !registryOk) ? 'LOOKUP_FAILED' : (existingKey ? 'COMMENT' : 'CREATE');\n  if (material && jiraAction !== 'LOOKUP_FAILED') {\n    if (plannedKeys[dedupKey]) { jiraAction = 'IN_RUN_DUPLICATE'; } else { plannedKeys[dedupKey] = true; }\n  }\n  return { idx: idx, material: material, dedupKey: dedupKey, existingKey: existingKey, jiraAction: jiraAction };\n});\n// Pass 2: allocate CREATE capacity by deterministic severity (CRITICAL > HIGH > MEDIUM > LOW), ties keep processing order.\n// Only CREATE candidates compete; COMMENT never consumes capacity. maxTickets is fail-closed (0 when invalid).\nconst createAllowed = {};\npre.filter((p) => p.jiraAction === 'CREATE')\n  .map((p) => ({ idx: p.idx, r: rank[breaks[p.idx].severity] || 0 }))\n  .sort((a, b) => (b.r - a.r) || (a.idx - b.idx))\n  .slice(0, maxTickets)\n  .forEach((p) => { createAllowed[p.idx] = true; });\nreturn breaks.map((d, idx) => {\n  const material = pre[idx].material;\n  const dedupKey = pre[idx].dedupKey;\n  const existingKey = pre[idx].existingKey;\n  let jiraAction = pre[idx].jiraAction;\n  let capped = false;\n  if (jiraAction === 'CREATE' && !createAllowed[idx]) { jiraAction = 'LOG_ONLY'; capped = true; }\n  const unconfirmed = d.automated_decision !== 'AUTO TRIAGED';\n  const causeLine = (unconfirmed ? 'UNCONFIRMED HYPOTHESIS - ' : '') + d.likely_root_cause;\n  const lines = [\n    'Trade ID: ' + d.trade_id, 'Symbol: ' + fmt(d.symbol), 'Venue: ' + fmt(d.venue), 'Account: ' + fmt(d.account),\n    'Execution timestamp: ' + fmt(d.execution_timestamp), 'Clearing timestamp: ' + fmt(d.clearing_timestamp), '',\n    'Break Type: ' + d.break_type + (d.break_types.length > 1 ? ' (' + d.break_types.join(', ') + ')' : ''),\n    'Severity: ' + d.severity, 'AI Confidence: ' + (d.ai_status === 'OK' ? d.ai_confidence : 'n/a (AI unavailable)'), '',\n    'Execution Quantity: ' + fmt(d.quantity), 'Clearing Quantity: ' + fmt(d.clearing_quantity), 'Quantity Difference: ' + fmt(d.quantity_difference), '',\n    'Execution Price: ' + fmt(d.price), 'Clearing Price: ' + fmt(d.clearing_price), 'Price Difference: ' + fmt(d.price_difference), '',\n    'Trade Notional: ' + fmt(d.trade_notional) + ' ' + fmt(d.currency),\n    'Clearing Delay (min): ' + fmt(d.clearing_delay_minutes) + ' [' + fmt(d.delay_basis) + ']', 'Clearing Status: ' + fmt(d.clearing_status), '',\n    'Likely Root Cause: ' + causeLine, 'Recommended Action: ' + d.recommended_action, '',\n    'Evidence:',\n  ].concat(d.evidence.map((e) => '- ' + e)).concat(['', 'Automated Decision: ' + d.automated_decision, 'Workflow run: ' + d.workflow_run_id]);\n  const description = lines.join(NL);\n  const out = Object.assign({}, d, {\n    material: material,\n    dedup_key: dedupKey,\n    jira_action: jiraAction,\n    existing_issue_key: existingKey || '',\n    jira_summary: '[TRADE BREAK][' + d.severity + '] ' + d.trade_id + ' - ' + d.break_type,\n    jira_description: description,\n    jira_priority_id: prio[d.severity],\n    jira_comment: 'Automated update (run ' + d.workflow_run_id + ' at ' + d.processed_at + '): break still present.' + NL + NL + description,\n    jira_issue_key: existingKey || '',\n    jira_ticket_created: false, duplicate_prevented: false,\n    manual_review: unconfirmed, workflow_error: d.ai_status === 'FAILED',\n    error_detail: d.ai_error || '',\n  });\n  if (jiraAction === 'LOG_ONLY') {\n    out.action_taken = capped ? 'JIRA_SKIPPED_TICKET_CAP_REACHED' : 'LOGGED_ONLY_BELOW_JIRA_THRESHOLD';\n    out.processing_status = d.ai_status === 'FAILED' ? 'COMPLETED_WITH_AI_FALLBACK' : 'COMPLETED';\n  } else if (jiraAction === 'IN_RUN_DUPLICATE') {\n    out.action_taken = 'DUPLICATE_PREVENTED_IN_RUN';\n    out.processing_status = d.ai_status === 'FAILED' ? 'COMPLETED_WITH_AI_FALLBACK' : 'COMPLETED';\n    out.duplicate_prevented = true;\n    out.error_detail = (d.ai_error || '');\n  } else if (jiraAction === 'LOOKUP_FAILED') {\n    out.action_taken = 'JIRA_DEDUP_LOOKUP_FAILED_RETRY_REQUIRED';\n    out.processing_status = 'JIRA_FAILED_RETRY_REQUIRED';\n    out.workflow_error = true;\n    out.error_detail = ('Dedup lookups failed: registry=' + registryError + ' jira=' + lookupError + ' ' + (d.ai_error || '')).trim();\n  }\n  return { json: out };\n});"
+      },
+      "id": "29d94a4c-7521-4154-98c3-da209d0edf99",
+      "name": "Resolve Deduplication Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "project": {
+          "__rl": true,
+          "value": "CONFIGURE_JIRA_PROJECT_ID",
+          "mode": "list",
+          "cachedResultName": "Trade Break Triage Agent"
+        },
+        "issueType": {
+          "__rl": true,
+          "value": "CONFIGURE_JIRA_ISSUE_TYPE_ID",
+          "mode": "list",
+          "cachedResultName": "Task"
+        },
+        "summary": "={{ $json.jira_summary }}",
+        "additionalFields": {
+          "description": "={{ $json.jira_description }}",
+          "labels": [
+            "trade-ops",
+            "post-trade",
+            "reconciliation",
+            "automated-triage"
+          ],
+          "priority": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.jira_priority_id }}"
+          }
+        }
+      },
+      "id": "c3037516-f6c8-48f8-ab80-e21301a49203",
+      "name": "Create Jira Incident",
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        3024,
+        176
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "CONFIGURE_INCIDENT_REGISTRY_TABLE_ID",
+          "cachedResultName": "trade_break_incidents"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedup_key",
+              "keyValue": "={{ $('Route Jira Action').item.json.dedup_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dedup_key": "={{ $('Route Jira Action').item.json.dedup_key }}",
+            "trade_id": "={{ $('Route Jira Action').item.json.trade_id }}",
+            "break_type": "={{ $('Route Jira Action').item.json.break_type }}",
+            "jira_issue_key": "={{ $('Create Jira Incident').item.json.key }}",
+            "status": "OPEN",
+            "first_seen_at": "={{ $('Route Jira Action').item.json.processed_at }}",
+            "last_seen_at": "={{ $('Route Jira Action').item.json.processed_at }}",
+            "last_workflow_run_id": "={{ $('Route Jira Action').item.json.workflow_run_id }}"
+          },
+          "schema": [
+            {
+              "id": "dedup_key",
+              "displayName": "dedup_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "trade_id",
+              "displayName": "trade_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "break_type",
+              "displayName": "break_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jira_issue_key",
+              "displayName": "jira_issue_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_workflow_run_id",
+              "displayName": "last_workflow_run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "30e5a36e-a4f3-49c9-a8e3-5d27c622ec55",
+      "name": "Register New Incident",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        128
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "issueComment",
+        "issueKey": "={{ $json.existing_issue_key }}",
+        "comment": "={{ $json.jira_comment }}",
+        "options": {}
+      },
+      "id": "e62b5677-7417-4a61-97f4-2aaf20c9983f",
+      "name": "Comment on Existing Jira Incident",
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [
+        3024,
+        560
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "CONFIGURE_INCIDENT_REGISTRY_TABLE_ID",
+          "cachedResultName": "trade_break_incidents"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedup_key",
+              "keyValue": "={{ $('Route Jira Action').item.json.dedup_key }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "last_seen_at": "={{ $('Route Jira Action').item.json.processed_at }}",
+            "last_workflow_run_id": "={{ $('Route Jira Action').item.json.workflow_run_id }}"
+          },
+          "schema": [
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_workflow_run_id",
+              "displayName": "last_workflow_run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ea972fff-14cb-4f50-baf6-db40cc35f8a1",
+      "name": "Update Incident Last Seen",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        512
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "CONFIGURE_AUDIT_LOG_TABLE_ID",
+          "cachedResultName": "trade_break_audit_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "processed_at": "={{ $json.processed_at }}",
+            "trade_id": "={{ $json.trade_id }}",
+            "reconciliation_status": "={{ $json.reconciliation_status }}",
+            "break_type": "={{ $json.break_type }}",
+            "severity": "={{ $json.severity }}",
+            "ai_confidence": "={{ $json.ai_confidence }}",
+            "jira_issue_key": "={{ $json.jira_issue_key }}",
+            "action_taken": "={{ $json.action_taken }}",
+            "processing_status": "={{ $json.processing_status }}",
+            "dedup_key": "={{ $json.dedup_key }}",
+            "retry_required": "={{ $json.retry_required === true }}",
+            "retry_stage": "={{ $json.retry_required === true ? $json.retry_stage : \"NONE\" }}"
+          },
+          "schema": [
+            {
+              "id": "workflow_run_id",
+              "displayName": "workflow_run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "trade_id",
+              "displayName": "trade_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reconciliation_status",
+              "displayName": "reconciliation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "break_type",
+              "displayName": "break_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_confidence",
+              "displayName": "ai_confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jira_issue_key",
+              "displayName": "jira_issue_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action_taken",
+              "displayName": "action_taken",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_status",
+              "displayName": "processing_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dedup_key",
+              "displayName": "dedup_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "retry_required",
+              "displayName": "retry_required",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "retry_stage",
+              "displayName": "retry_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4a56a51b-d361-4a25-a408-7bc03c25df6c",
+      "name": "Write Audit Log",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3696,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Operational metrics derived from the consolidated audit records of this run.\n// Retry semantics: only failed external Jira actions are retryable. AI fallback and the ticket cap are not.\nconst rows = $('Consolidate Audit Records').all().map((i) => {\n  const r = i.json;\n  const retry = r.retry_required === true;\n  return Object.assign({}, r, { retry_required: retry, retry_stage: retry ? (r.retry_stage || 'NONE') : 'NONE' });\n});\nconst count = (f) => rows.filter(f).length;\nconst sev = (s) => count((r) => r.reconciliation_status === 'BREAK' && r.severity === s);\nreturn [{ json: {\n  workflow_run_id: String($execution.id),\n  completed_at: new Date().toISOString(),\n  total_trades_processed: rows.length,\n  matched_trades: count((r) => r.reconciliation_status === 'MATCHED'),\n  trade_breaks: count((r) => r.reconciliation_status === 'BREAK'),\n  critical_breaks: sev('CRITICAL'),\n  high_breaks: sev('HIGH'),\n  medium_breaks: sev('MEDIUM'),\n  low_breaks: sev('LOW'),\n  jira_tickets_created: count((r) => r.jira_ticket_created === true),\n  duplicate_tickets_prevented: count((r) => r.duplicate_prevented === true),\n  manual_reviews_required: count((r) => r.manual_review === true),\n  workflow_errors: count((r) => r.workflow_error === true),\n  ai_fallbacks: count((r) => r.reconciliation_status === 'BREAK' && r.ai_status === 'FAILED'),\n  jira_create_failures: count((r) => r.action_taken === 'JIRA_TICKET_CREATION_FAILED'),\n  jira_comment_failures: count((r) => r.action_taken === 'DUPLICATE_PREVENTED_COMMENT_FAILED'),\n  retry_required_count: count((r) => r.retry_required === true),\n  failed_items_for_retry: rows.filter((r) => r.retry_required === true).map((r) => ({\n    trade_id: r.trade_id, break_type: r.break_type, severity: r.severity, dedup_key: r.dedup_key,\n    retry_stage: r.retry_stage, action_taken: r.action_taken, processing_status: r.processing_status, error_detail: r.error_detail,\n  })),\n} }];"
+      },
+      "id": "9b182248-e409-4044-adee-93ff6e79311f",
+      "name": "Compile Run Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        560
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -112
+      ],
+      "id": "85bf432d-dbee-45ef-8599-157fedb482ce",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Load Execution Records (Mock)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Clearing Records (Mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Execution Records (Mock)": {
+      "main": [
+        [
+          {
+            "node": "Combine Ingested Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Clearing Records (Mock)": {
+      "main": [
+        [
+          {
+            "node": "Combine Ingested Records",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Ingested Records": {
+      "main": [
+        [
+          {
+            "node": "Normalise Trade Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Incident Creation Failed": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Consolidate Audit Records": {
+      "main": [
+        [
+          {
+            "node": "Write Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Incident Created": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Comment Failed": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Record Existing Incident Updated": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Route Jira Action": {
+      "main": [
+        [
+          {
+            "node": "Create Jira Incident",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comment on Existing Jira Incident",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Build Matched Audit Record": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Audit Records",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Normalise Trade Records": {
+      "main": [
+        [
+          {
+            "node": "Reconcile Trades",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconcile Trades": {
+      "main": [
+        [
+          {
+            "node": "Route Matched vs Break",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Matched vs Break": {
+      "main": [
+        [
+          {
+            "node": "Compute Break Severity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Matched Audit Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Break Severity": {
+      "main": [
+        [
+          {
+            "node": "AI Root-Cause Triage Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Root-Cause Triage Agent": {
+      "main": [
+        [
+          {
+            "node": "Apply Confidence Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triage Language Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Root-Cause Triage Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Triage Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Root-Cause Triage Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Confidence Gate": {
+      "main": [
+        [
+          {
+            "node": "Load Incident Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Incident Registry": {
+      "main": [
+        [
+          {
+            "node": "Find Open Jira Incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Open Jira Incidents": {
+      "main": [
+        [
+          {
+            "node": "Resolve Deduplication Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Deduplication Decision": {
+      "main": [
+        [
+          {
+            "node": "Route Jira Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Jira Incident": {
+      "main": [
+        [
+          {
+            "node": "Register New Incident",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Incident Creation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register New Incident": {
+      "main": [
+        [
+          {
+            "node": "Record Incident Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment on Existing Jira Incident": {
+      "main": [
+        [
+          {
+            "node": "Update Incident Last Seen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Comment Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Incident Last Seen": {
+      "main": [
+        [
+          {
+            "node": "Record Existing Incident Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Audit Log": {
+      "main": [
+        [
+          {
+            "node": "Compile Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [
+    {
+      "id": "b5f624e5-3339-4bf3-9fc6-15a7ee86daf6",
+      "name": "Ingest trade records",
+      "nodeIds": [
+        "547a43dd-200c-411d-b768-58ecd26cdc91",
+        "35acbbdb-74c7-417c-b28e-9172b114cb36",
+        "203e8615-b459-40ea-b74c-b24b2dbbe691",
+        "d83ce6a7-593f-4373-9fea-1bf5ff1bf24e"
+      ],
+      "description": "Every 15 min loads execution and clearing records (mock data) under one shared configuration"
+    },
+    {
+      "id": "cd462bd3-5ac4-4aa4-9325-57f9e7c49c7e",
+      "name": "Reconcile trades",
+      "nodeIds": [
+        "513d1174-6253-4dec-b114-eeda01100121",
+        "7ebd7819-d1bc-4cdc-86f9-8b1096b1ccd4"
+      ],
+      "description": "Cleans both datasets, flags malformed rows and matches execution to clearing by trade ID"
+    },
+    {
+      "id": "55560be0-3936-49ea-aae8-d9b7c890e5ef",
+      "name": "Triage and escalate breaks",
+      "nodeIds": [
+        "99f03c2a-4dbc-408d-be75-23ad74741608",
+        "8af8bad4-9659-4ed2-91ca-b3ae8ca97cfe",
+        "04496d4c-6fab-47fc-831a-5291049c5222",
+        "8ffc1f70-e0e7-42b3-89d1-53bb8aa86452",
+        "94ffcb97-0498-4f33-8ae4-73bce54e4cb3",
+        "10fd9ad6-496a-4596-89d2-7e92f2a2bdfd",
+        "a0595f19-8398-4029-857d-57d6725772fb",
+        "bf975463-0a14-4993-b715-4b29673dbb40",
+        "f5d92fb4-8dd8-4756-9b97-20a9edce4710",
+        "29d94a4c-7521-4154-98c3-da209d0edf99",
+        "30e5a36e-a4f3-49c9-a8e3-5d27c622ec55",
+        "ea972fff-14cb-4f50-baf6-db40cc35f8a1",
+        "b05da352-8135-405f-b889-8a4e8f1636d3",
+        "c3037516-f6c8-48f8-ab80-e21301a49203",
+        "e62b5677-7417-4a61-97f4-2aaf20c9983f",
+        "6e374cf6-9b06-45ac-9b19-c6dadd7ee0ea",
+        "81e8ea88-7dd5-46ae-a3db-b62de786eabe",
+        "a885cc2c-ddb9-453b-825a-79649bbb3638",
+        "099ff7c6-c8e4-4bd6-8ec5-624ede3d7726",
+        "7ba0b993-4a96-44a0-ad96-4be2500d27e9",
+        "4a56a51b-d361-4a25-a408-7bc03c25df6c",
+        "9b182248-e409-4044-adee-93ff6e79311f"
+      ],
+      "description": "Splits matched from breaks, scores severity, AI triage, confidence gate, Jira dedup, audit log, run metrics"
+    }
+  ],
+  "tags": []
+}
