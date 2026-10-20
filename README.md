@@ -532,8 +532,6 @@ trade-break-triage-agent/
 │
 ├── README.md
 │
-├── LICENSE
-│
 ├── workflow/
 │   ├── README.md
 │   └── trade-break-triage-agent.json
@@ -553,8 +551,7 @@ trade-break-triage-agent/
     ├── architecture.png
     ├── workflow-overview.png
     ├── jira-board.png
-    ├── jira-critical-incident.png
-    └── jira-dedup-update.png
+    └── jira-critical-incident.png
 ```
 
 > Some optional visual assets may be omitted depending on the public repository version.
